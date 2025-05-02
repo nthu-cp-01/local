@@ -3,9 +3,12 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.12
+  - python=3.9
   - pip
   - pip:
+    # SDK Package
+    - awsiotsdk
+
     # GPIO Settings
     - Jetson.GPIO
     - adafruit-circuitpython-dht
