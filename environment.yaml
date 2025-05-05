@@ -10,7 +10,7 @@ dependencies:
     - awsiotsdk
 
     # GPIO Settings
-    - Jetson.GPIO
+    #- Jetson.GPIO
     - adafruit-circuitpython-dht
 
     # Camera Dependencies
