@@ -1,5 +1,6 @@
 import argparse
-from time import sleep
+from time import time, sleep
+import json
 from concurrent.futures import Future
 import sys
 import traceback
@@ -16,6 +17,14 @@ CONTROLLER_DEFAULT_VALUE = {
     "dehumidifier_is_enable": False,
     "ac_is_enable": False,
 }
+
+THRESHOLD_TEMPERATURE = 30.0
+ACTIVATED_TEMPERATURE = 26.0
+WARNING_INTERVAL_SECONDS = 5 * 60
+
+WARNING_TOPIC = "dht_sensor/warning"
+
+last_warning_sec = 0
 
 class MockSensor:
     def get_humidity_and_temperature(self):
@@ -162,6 +171,31 @@ def run(sensor, controller, shadow_client):
             )
             future = shadow_client.publish_update_named_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
             future.add_done_callback(on_publish_update_shadow)
+
+            current_time = time()
+            global last_warning_sec
+            if temp > THRESHOLD_TEMPERATURE and current_time >= last_warning_sec + WARNING_INTERVAL_SECONDS:
+                print(f"temperature {temp} exceeding threshold {THRESHOLD_TEMPERATURE}, publish to '{WARNING_TOPIC}'")
+
+                # send SNS warning
+                payload = {
+                    "reported_temperature": temp,
+                    "threshold_temperature": THRESHOLD_TEMPERATURE
+                }
+                message_json = json.dumps(payload)
+                mqtt_connection.publish(
+                    topic=WARNING_TOPIC,
+                    payload=message_json,
+                    qos=mqtt.QoS.AT_LEAST_ONCE)
+
+                # activate machine
+                prop = {
+                    "temperature": ACTIVATED_TEMPERATURE,
+                    "ac_is_enable": True,
+                }
+                set_machine_and_publish_update(prop)
+
+                last_warning_sec = current_time
             sleep(DHT_MIN_PERIOD)
 
     except Exception as e:
