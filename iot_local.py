@@ -7,6 +7,7 @@ from uuid import uuid4
 from awscrt import mqtt, http
 from awsiot import iotshadow, mqtt_connection_builder
 
+THING_NAME = "named_test"
 SENSOR_SHADOW_NAME = "dht_sensor"
 CONTROLLER_SHADOW_NAME = "controller"
 CONTROLLER_DEFAULT_VALUE = {
@@ -75,8 +76,9 @@ def set_machine_and_publish_update(state):
     for k, v in state.items():
         controller.set_machine_property(k, v)
 
-    request = iotshadow.UpdateShadowRequest(
-        thing_name=CONTROLLER_SHADOW_NAME,
+    request = iotshadow.UpdateNamedShadowRequest(
+        thing_name=THING_NAME,
+        shadow_name=CONTROLLER_SHADOW_NAME,
         state=iotshadow.ShadowState(
             reported=state,
             desired=state,
@@ -84,7 +86,7 @@ def set_machine_and_publish_update(state):
         client_token=token,
     )
 
-    future = shadow_client.publish_update_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
+    future = shadow_client.publish_update_named_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
     future.add_done_callback(on_publish_update_shadow)
 
 def on_shadow_delta_updated(delta):
@@ -102,13 +104,15 @@ def run(sensor, controller, shadow_client):
         # Note that is **is** important to wait for "accepted/rejected" subscriptions
         # to succeed before publishing the corresponding "request".
         print("Subscribing to Update responses...")
-        update_accepted_subscribed_future, _ = shadow_client.subscribe_to_update_shadow_accepted(
-            request=iotshadow.UpdateShadowSubscriptionRequest(thing_name=CONTROLLER_SHADOW_NAME),
+        update_accepted_subscribed_future, _ = shadow_client.subscribe_to_update_named_shadow_accepted(
+            request=iotshadow.UpdateNamedShadowSubscriptionRequest(
+                thing_name=THING_NAME, shadow_name=CONTROLLER_SHADOW_NAME),
             qos=mqtt.QoS.AT_LEAST_ONCE,
             callback=on_update_shadow_accepted)
 
-        update_rejected_subscribed_future, _ = shadow_client.subscribe_to_update_shadow_rejected(
-            request=iotshadow.UpdateShadowSubscriptionRequest(thing_name=CONTROLLER_SHADOW_NAME),
+        update_rejected_subscribed_future, _ = shadow_client.subscribe_to_update_named_shadow_rejected(
+            request=iotshadow.UpdateNamedShadowSubscriptionRequest(
+                thing_name=THING_NAME, shadow_name=CONTROLLER_SHADOW_NAME),
             qos=mqtt.QoS.AT_LEAST_ONCE,
             callback=on_update_shadow_rejected)
 
@@ -117,8 +121,9 @@ def run(sensor, controller, shadow_client):
         update_rejected_subscribed_future.result()
 
         print("Subscribing to Delta events...")
-        delta_subscribed_future, _ = shadow_client.subscribe_to_shadow_delta_updated_events(
-            request=iotshadow.ShadowDeltaUpdatedSubscriptionRequest(thing_name=CONTROLLER_SHADOW_NAME),
+        delta_subscribed_future, _ = shadow_client.subscribe_to_named_shadow_delta_updated_events(
+            request=iotshadow.NamedShadowDeltaUpdatedSubscriptionRequest(
+                thing_name=THING_NAME, shadow_name=CONTROLLER_SHADOW_NAME),
             qos=mqtt.QoS.AT_LEAST_ONCE,
             callback=on_shadow_delta_updated)
 
@@ -128,15 +133,16 @@ def run(sensor, controller, shadow_client):
         token = str(uuid4())
         print(f"{token} Updating current shadow state...")
         state = controller.get_machine_property()
-        request = iotshadow.UpdateShadowRequest(
-            thing_name=CONTROLLER_SHADOW_NAME,
+        request = iotshadow.UpdateNamedShadowRequest(
+            thing_name=THING_NAME,
+            shadow_name=CONTROLLER_SHADOW_NAME,
             state=iotshadow.ShadowState(
                 reported=state,
             ),
             client_token=token,
         )
 
-        future = shadow_client.publish_update_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
+        future = shadow_client.publish_update_named_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
         future.add_done_callback(on_publish_update_shadow)
 
         DHT_MIN_PERIOD = 2
@@ -146,14 +152,15 @@ def run(sensor, controller, shadow_client):
                 "humidity": hum,
                 "temperature": temp,
             }
-            request = iotshadow.UpdateShadowRequest(
-                thing_name=SENSOR_SHADOW_NAME,
+            request = iotshadow.UpdateNamedShadowRequest(
+                thing_name=THING_NAME,
+                shadow_name=SENSOR_SHADOW_NAME,
                 state=iotshadow.ShadowState(
                     reported=state,
                 ),
                 client_token=token,
             )
-            future = shadow_client.publish_update_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
+            future = shadow_client.publish_update_named_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
             future.add_done_callback(on_publish_update_shadow)
             sleep(DHT_MIN_PERIOD)
 
