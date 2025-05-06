@@ -1,7 +1,6 @@
 resource "aws_iot_thing" "lab_thing" {
-  name = "jetson-xavier-nx"
+  name = "named_test"
 }
-
 
 data "aws_iot_endpoint" "lab_iot_endpoint" {}
 
