@@ -210,7 +210,7 @@ if __name__ == '__main__':
     endpoint=args.endpoint,
     cert_filepath=args.cert,
     pri_key_filepath=args.key,
-    ca_filepath=args.ca_file,
+    #ca_filepath=args.ca_file,
     client_id="test-" + str(uuid4()))
 
     print("Connecting to endpoint with client ID")
