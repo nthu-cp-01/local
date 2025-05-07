@@ -1,5 +1,6 @@
 import argparse
-from time import sleep
+from time import time, sleep
+import json
 from concurrent.futures import Future
 import sys
 import traceback
@@ -7,6 +8,7 @@ from uuid import uuid4
 from awscrt import mqtt, http
 from awsiot import iotshadow, mqtt_connection_builder
 
+THING_NAME = "named_test"
 SENSOR_SHADOW_NAME = "dht_sensor"
 CONTROLLER_SHADOW_NAME = "controller"
 CONTROLLER_DEFAULT_VALUE = {
@@ -15,6 +17,14 @@ CONTROLLER_DEFAULT_VALUE = {
     "dehumidifier_is_enable": False,
     "ac_is_enable": False,
 }
+
+THRESHOLD_TEMPERATURE = 30.0
+ACTIVATED_TEMPERATURE = 26.0
+WARNING_INTERVAL_SECONDS = 5 * 60
+
+WARNING_TOPIC = "dht_sensor/warning"
+
+last_warning_sec = 0
 
 class MockSensor:
     def get_humidity_and_temperature(self):
@@ -75,8 +85,9 @@ def set_machine_and_publish_update(state):
     for k, v in state.items():
         controller.set_machine_property(k, v)
 
-    request = iotshadow.UpdateShadowRequest(
-        thing_name=CONTROLLER_SHADOW_NAME,
+    request = iotshadow.UpdateNamedShadowRequest(
+        thing_name=THING_NAME,
+        shadow_name=CONTROLLER_SHADOW_NAME,
         state=iotshadow.ShadowState(
             reported=state,
             desired=state,
@@ -84,7 +95,7 @@ def set_machine_and_publish_update(state):
         client_token=token,
     )
 
-    future = shadow_client.publish_update_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
+    future = shadow_client.publish_update_named_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
     future.add_done_callback(on_publish_update_shadow)
 
 def on_shadow_delta_updated(delta):
@@ -102,13 +113,15 @@ def run(sensor, controller, shadow_client):
         # Note that is **is** important to wait for "accepted/rejected" subscriptions
         # to succeed before publishing the corresponding "request".
         print("Subscribing to Update responses...")
-        update_accepted_subscribed_future, _ = shadow_client.subscribe_to_update_shadow_accepted(
-            request=iotshadow.UpdateShadowSubscriptionRequest(thing_name=CONTROLLER_SHADOW_NAME),
+        update_accepted_subscribed_future, _ = shadow_client.subscribe_to_update_named_shadow_accepted(
+            request=iotshadow.UpdateNamedShadowSubscriptionRequest(
+                thing_name=THING_NAME, shadow_name=CONTROLLER_SHADOW_NAME),
             qos=mqtt.QoS.AT_LEAST_ONCE,
             callback=on_update_shadow_accepted)
 
-        update_rejected_subscribed_future, _ = shadow_client.subscribe_to_update_shadow_rejected(
-            request=iotshadow.UpdateShadowSubscriptionRequest(thing_name=CONTROLLER_SHADOW_NAME),
+        update_rejected_subscribed_future, _ = shadow_client.subscribe_to_update_named_shadow_rejected(
+            request=iotshadow.UpdateNamedShadowSubscriptionRequest(
+                thing_name=THING_NAME, shadow_name=CONTROLLER_SHADOW_NAME),
             qos=mqtt.QoS.AT_LEAST_ONCE,
             callback=on_update_shadow_rejected)
 
@@ -117,8 +130,9 @@ def run(sensor, controller, shadow_client):
         update_rejected_subscribed_future.result()
 
         print("Subscribing to Delta events...")
-        delta_subscribed_future, _ = shadow_client.subscribe_to_shadow_delta_updated_events(
-            request=iotshadow.ShadowDeltaUpdatedSubscriptionRequest(thing_name=CONTROLLER_SHADOW_NAME),
+        delta_subscribed_future, _ = shadow_client.subscribe_to_named_shadow_delta_updated_events(
+            request=iotshadow.NamedShadowDeltaUpdatedSubscriptionRequest(
+                thing_name=THING_NAME, shadow_name=CONTROLLER_SHADOW_NAME),
             qos=mqtt.QoS.AT_LEAST_ONCE,
             callback=on_shadow_delta_updated)
 
@@ -128,15 +142,16 @@ def run(sensor, controller, shadow_client):
         token = str(uuid4())
         print(f"{token} Updating current shadow state...")
         state = controller.get_machine_property()
-        request = iotshadow.UpdateShadowRequest(
-            thing_name=CONTROLLER_SHADOW_NAME,
+        request = iotshadow.UpdateNamedShadowRequest(
+            thing_name=THING_NAME,
+            shadow_name=CONTROLLER_SHADOW_NAME,
             state=iotshadow.ShadowState(
                 reported=state,
             ),
             client_token=token,
         )
 
-        future = shadow_client.publish_update_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
+        future = shadow_client.publish_update_named_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
         future.add_done_callback(on_publish_update_shadow)
 
         DHT_MIN_PERIOD = 2
@@ -146,15 +161,41 @@ def run(sensor, controller, shadow_client):
                 "humidity": hum,
                 "temperature": temp,
             }
-            request = iotshadow.UpdateShadowRequest(
-                thing_name=SENSOR_SHADOW_NAME,
+            request = iotshadow.UpdateNamedShadowRequest(
+                thing_name=THING_NAME,
+                shadow_name=SENSOR_SHADOW_NAME,
                 state=iotshadow.ShadowState(
                     reported=state,
                 ),
                 client_token=token,
             )
-            future = shadow_client.publish_update_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
+            future = shadow_client.publish_update_named_shadow(request, mqtt.QoS.AT_LEAST_ONCE)
             future.add_done_callback(on_publish_update_shadow)
+
+            current_time = time()
+            global last_warning_sec
+            if temp > THRESHOLD_TEMPERATURE and current_time >= last_warning_sec + WARNING_INTERVAL_SECONDS:
+                print(f"temperature {temp} exceeding threshold {THRESHOLD_TEMPERATURE}, publish to '{WARNING_TOPIC}'")
+
+                # send SNS warning
+                payload = {
+                    "reported_temperature": temp,
+                    "threshold_temperature": THRESHOLD_TEMPERATURE
+                }
+                message_json = json.dumps(payload)
+                mqtt_connection.publish(
+                    topic=WARNING_TOPIC,
+                    payload=message_json,
+                    qos=mqtt.QoS.AT_LEAST_ONCE)
+
+                # activate machine
+                prop = {
+                    "temperature": ACTIVATED_TEMPERATURE,
+                    "ac_is_enable": True,
+                }
+                set_machine_and_publish_update(prop)
+
+                last_warning_sec = current_time
             sleep(DHT_MIN_PERIOD)
 
     except Exception as e:
@@ -169,7 +210,7 @@ if __name__ == '__main__':
     endpoint=args.endpoint,
     cert_filepath=args.cert,
     pri_key_filepath=args.key,
-    ca_filepath=args.ca_file,
+    #ca_filepath=args.ca_file,
     client_id="test-" + str(uuid4()))
 
     print("Connecting to endpoint with client ID")
