@@ -79,6 +79,11 @@ if __name__ == "__main__":
         else:
             print("❌ 使用者驗證失敗，請重新掃描")
             exit()
+
+    proceed = input("📦 是否要繼續掃描物品 QR Code？(y/n): ").strip().lower()
+    if proceed != "y":
+        print("👋 已取消流程")
+        exit()
         
     # 物品 QR Code 掃描（只需要掃到即可）
     print("🔔 請將物品 QR Code 放在鏡頭前，按 Enter 開始掃描")
