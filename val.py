@@ -4,6 +4,7 @@ from pyzbar.pyzbar import decode
 from PIL import Image
 import requests
 import json
+from gpiozero import InputDevice
 
 camera = CameraHelper()
 
@@ -63,10 +64,7 @@ def send_item_id(token, item_id):
     print("回應內容:", response.text)
     return response.status_code == 200
 
-# ========================
-# ✅ 主流程
-# ========================
-if __name__ == "__main__":
+def verify():
     # 使用者 QR Code 掃描 + 驗證
     print("🔔 請將使用者 QR Code 放在鏡頭前，按 Enter 開始掃描")
     input("👉 請按 Enter 開始...")
@@ -78,11 +76,12 @@ if __name__ == "__main__":
             break
         else:
             print("❌ 使用者驗證失敗，請重新掃描")
-            exit()
-        
+
+    y = input("👉 若要借出物品，按 y 繼續掃描物品 QR Code")
+    if y != 'y':
+        return
     # 物品 QR Code 掃描（只需要掃到即可）
-    print("🔔 請將物品 QR Code 放在鏡頭前，按 Enter 開始掃描")
-    input("👉 請按 Enter 開始...")
+    print("🔔 請將物品 QR Code 放在鏡頭前")
 
     item_id = scan_qr_loop("qr.jpg", label="物品 QR Code", delay=5)
 
@@ -91,3 +90,21 @@ if __name__ == "__main__":
         print("🎉 ✅ 借出成功！")
     else:
         print("❌ 借出失敗，請重試整個流程")
+
+# ========================
+# ✅ 主流程
+# ========================
+if __name__ == "__main__":
+    # IR sensor 初始化，設定輸入為 GPIO 23(Pin 16)
+    ir_sensor = InputDevice(23)
+
+    while True:
+        # 偵測人員通過門禁
+        while not ir_sensor.is_active:
+            time.sleep(0.5)
+
+        # 人員和物品驗證
+        verify()
+
+        # 避免人員偵測重複觸發
+        time.sleep(1)
