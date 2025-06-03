@@ -31,13 +31,30 @@ API_BASE = "http://192.168.251.11"
 def read_qr_from_image(image_path):
     try:
         image = Image.open(image_path)
+        width, height = image.size
+
+        # 裁切中央區域（縮小解碼範圍）
+        crop_size = int(min(width, height) * 0.6)
+        left = (width - crop_size) // 2
+        top = (height - crop_size) // 2
+        right = left + crop_size
+        bottom = top + crop_size
+        cropped_image = image.crop((left, top, right, bottom))
+
+        decoded_objects = decode(cropped_image)
+        for obj in decoded_objects:
+            return obj.data.decode("utf-8")
+
+        # 嘗試用整張圖片再次 decode（以防中央掃不到）
         decoded_objects = decode(image)
         for obj in decoded_objects:
             return obj.data.decode("utf-8")
+
         return None
     except Exception as e:
         print(f"❌ 解碼失敗: {e}")
         return None
+
 
 def verify_user_token(token):
     url = f"{API_BASE}/api/user"
@@ -77,7 +94,7 @@ def verify():
         else:
             print("❌ 使用者驗證失敗，請重新掃描")
 
-    y = input("👉 若要借出物品，按 y 繼續掃描物品 QR Code")
+    y = input("👉 若要借出物品，按 y 繼續掃描物品 QR Code: ")
     if y != 'y':
         return
     # 物品 QR Code 掃描（只需要掃到即可）
@@ -87,7 +104,7 @@ def verify():
 
     # 傳送 item id
     if send_item_id(user_token, item_id):
-        print("🎉 ✅ 借出成功！")
+        print("🎉 ✅ 借/還成功！")
     else:
         print("❌ 借出失敗，請重試整個流程")
 
